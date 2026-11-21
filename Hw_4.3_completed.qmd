@@ -1,0 +1,164 @@
+---
+title: "Reproducible Data Analysis"
+author: "Faisal Aljehani"
+date: "November 20, 2026"
+format:
+  pdf:
+    toc: true
+    number-sections: true
+editor: visual
+---
+
+# Introduction
+
+This report demonstrates how statistical summaries, data visualization, and simulation can be used to analyze data reproducibly. It includes descriptive statistics for diamond dimensions, an analysis of Big Ten women's basketball, a Monte Carlo estimate of a definite integral, and a reflection on using generative AI tools. All analysis code is provided in Appendix B so that the results can be regenerated.
+
+# Diamonds Table of Statistics
+
+The `diamonds` data set contains measurements of diamond dimensions. The variables `x`, `y`, and `z` represent length, width, and depth in millimeters. Records with a zero measurement are excluded because zero is not a meaningful physical dimension for a diamond.
+
+The table below summarizes each dimension by diamond cut. It reports the sample size, minimum, first quartile, median, third quartile, maximum, median absolute deviation (MAD), mean, and standard deviation. The table is generated directly from the data when this document is rendered.
+
+```{r}
+#| label: tbl-diamond-stats
+#| tbl-cap: "Descriptive statistics for diamond dimensions by cut."
+library(tidyverse)
+library(knitr)
+
+diamond_stats <- ggplot2::diamonds |>
+  filter(x > 0, y > 0, z > 0) |>
+  pivot_longer(cols = c(x, y, z),
+               names_to = "Dimension", values_to = "Measurement") |>
+  group_by(cut, Dimension) |>
+  summarise(
+    n = n(),
+    Min = min(Measurement),
+    Q1 = quantile(Measurement, 0.25),
+    Median = median(Measurement),
+    Q3 = quantile(Measurement, 0.75),
+    Max = max(Measurement),
+    MAD = mad(Measurement, constant = 1),
+    Mean = mean(Measurement),
+    SD = sd(Measurement),
+    .groups = "drop"
+  ) |>
+  mutate(across(where(is.numeric), ~round(.x, 2)))
+
+kable(diamond_stats, digits = 2,
+      col.names = c("Cut", "Dimension", "n", "Min", "Q1",
+                    "Median", "Q3", "Max", "MAD", "Mean", "SD"))
+```
+
+The table allows comparisons of both typical size and variability. The mean and median describe the center of each dimension, while the standard deviation and MAD describe spread. The quartiles show the middle half of the measurements and are less affected by unusually large or small observations than the range.
+
+# Big 10 Academic Alliance – Love Data Week
+
+The basketball analysis uses the supplied team-game data and team-conference lookup table. The analysis selects Big Ten teams for season 2026, calculates each team's average points per game and total wins, and displays the relationship in a scatterplot.
+
+```{r}
+#| warning: false
+#| label: fig-big-ten
+#| fig-cap: "Average points per game versus total wins for Big Ten teams, season 2026."
+#| fig-alt: "Scatterplot comparing each Big Ten team's average points per game with its total wins."
+library(readxl)
+library(tidyverse)
+
+team_box <- suppressWarnings(read_excel("team exel.xlsx"))
+teams <- read_excel("teams.xlsx")
+
+big_ten_ids <- teams |>
+  filter(conference_name == "Big Ten Conference") |>
+  pull(team_id)
+
+team_summary <- team_box |>
+  filter(season == 2026, team_id %in% big_ten_ids) |>
+  group_by(team_id, team_display_name) |>
+  summarise(
+    games = n(),
+    average_points_per_game = mean(team_score, na.rm = TRUE),
+    wins = sum(team_winner %in% TRUE, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  arrange(desc(wins))
+
+ggplot(team_summary,
+       aes(x = average_points_per_game, y = wins,
+           label = team_display_name)) +
+  geom_point(size = 2.5) +
+  geom_smooth(method = "lm", se = FALSE, color = "steelblue") +
+  geom_text(check_overlap = TRUE, nudge_y = 0.4, size = 2.7) +
+  labs(
+    x = "Average points per game",
+    y = "Total wins",
+    title = "Big Ten Women's Basketball: Scoring and Wins"
+  ) +
+  theme_minimal()
+```
+
+The scatterplot shows a positive association: teams with higher average points per game generally have more wins. This is an association, not proof that scoring alone causes a team to win. Defense, opponent strength, turnovers, and other factors also contribute to game outcomes. The analysis is limited to the season and team records selected above.
+
+# Monte Carlo Numerical Integration
+
+Monte Carlo integration estimates the area under a function by drawing random values uniformly over an interval and averaging the function values. For this demonstration, the function is the beta probability density with shape parameters 2 and 5 on the interval from 0 to 1. The exact area under a probability density over its full support is 1, so the simulation can be checked against that known value.
+
+For each sample size, the estimate is the interval length multiplied by the average of the sampled density values. Larger samples should generally produce estimates closer to 1, although random variation means that the estimates do not have to improve in a perfectly steady sequence.
+
+```{r}
+#| label: fig-monte-carlo
+#| fig-cap: "Monte Carlo estimates of the integral as sample size increases."
+#| fig-alt: "Plot of the Monte Carlo integral estimates for increasing sample sizes, with a horizontal reference line at one."
+set.seed(184)
+f <- function(x) dbeta(x, shape1 = 2, shape2 = 5)
+sample_sizes <- c(10, 100, 1000, 10000)
+
+mc_results <- tibble(
+  n = sample_sizes,
+  estimate = map_dbl(sample_sizes, function(n) {
+    x <- runif(n, min = 0, max = 1)
+    (1 - 0) * mean(f(x))
+  })
+)
+
+ggplot(mc_results, aes(x = n, y = estimate)) +
+  geom_line() +
+  geom_point(size = 2.5) +
+  geom_hline(yintercept = 1, linetype = "dashed",
+             color = "red") +
+  scale_x_log10(breaks = sample_sizes) +
+  labs(x = "Number of random samples (log scale)",
+       y = "Estimated integral",
+       title = "Monte Carlo Integration of a Beta Density") +
+  theme_minimal()
+
+knitr::kable(mc_results, digits = 4,
+             col.names = c("Sample size", "Estimated integral"))
+```
+
+The estimates fluctuate because each simulation uses random samples. Increasing the sample size reduces the influence of any one observation and generally makes the estimate more stable. The dashed line represents the exact integral of 1.
+
+# Planning and Prompting GenAI Tools
+
+I used a generative AI tool as a support resource while planning the report and working with R code. I found it most useful when I gave it a specific task, named the data and variables, and described the output I needed. For example, asking for help summarizing variables by group was more useful than asking generally how to analyze a dataset.
+
+A useful prompt includes the goal, the relevant data columns, any filtering rules, the required output, and constraints such as keeping the code reproducible. AI-generated code and explanations still need to be checked. I reviewed the code structure and statistical meaning rather than treating an AI response as automatically correct.
+
+# Reflection
+
+This assignment brought together several skills from STAT 184. I practiced summarizing numerical variables, comparing groups, creating a scatterplot, and using simulation to approximate an integral. I also saw why a reproducible workflow matters: the code records how the data were filtered and how each result was calculated, so the analysis can be checked and repeated.
+
+One important lesson was that a graph can show a relationship without proving cause and effect. I also learned that simulation results vary because of randomness, and that larger samples generally make Monte Carlo estimates more stable. In future analyses, I would continue to check variable definitions, confirm that filters match the research question, and explain limitations alongside the results.
+
+# Appendix A: GenAI Usage
+
+Generative AI was used to help organize the report, explain statistical concepts, and draft and review parts of the R workflow. I checked the proposed methods against the assignment context and the data, and I remain responsible for the submitted analysis and interpretation. AI assistance was used as a support tool rather than as a replacement for understanding or verifying the work.
+
+# Appendix B: Code Appendix
+
+The code chunks throughout the report contain the complete analysis workflow. The following packages are used:
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(readxl)
+library(knitr)
+```
